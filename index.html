@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SeeForMe</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet"></script>
+
+<style>
+body {
+  font-family: Arial;
+  background: #f2f2f2;
+  display: flex;
+  justify-content: center;
+}
+.container {
+  background: white;
+  margin-top: 20px;
+  padding: 20px;
+  width: 380px;
+  border-radius: 15px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+  text-align: center;
+}
+.dark {
+  background: #111;
+  color: white;
+}
+video, img {
+  width: 100%;
+  border-radius: 10px;
+  margin-top: 10px;
+}
+button, select {
+  margin: 5px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+.history {
+  text-align: left;
+  font-size: 14px;
+  margin-top: 10px;
+}
+.credit {
+  margin-top: 15px;
+  font-size: 12px;
+  opacity: 0.7;
+}
+</style>
+</head>
+
+<body>
+<div class="container" id="app">
+
+<h3>SeeForMe</h3>
+
+<p id="status">Loading model...</p>
+
+<select id="voiceSelect"></select>
+<button onclick="toggleDark()">Dark Mode</button>
+
+<input type="file" accept="image/*" id="upload">
+<button onclick="startCamera()">Camera</button>
+<button onclick="capture()">Capture</button>
+<button onclick="analyze()" id="analyzeBtn" disabled>Analyze</button>
+
+<video id="camera" autoplay playsinline style="display:none;"></video>
+<img id="preview">
+
+<div class="history">
+  <strong>History:</strong>
+  <ul id="historyList"></ul>
+</div>
+
+<div class="credit">
+  Developed by Vedant & Aniket Kadam
+</div>
+
+</div>
+
+<script>
+let model;
+let imageReady = false;
+let historyData = JSON.parse(localStorage.getItem("seeHistory")) || [];
+
+async function loadModel(){
+  try{
+    await tf.setBackend('webgl');
+    model = await mobilenet.load();
+    document.getElementById("status").innerText="Model Ready";
+  }catch{
+    document.getElementById("status").innerText="Model failed to load.";
+  }
+}
+loadModel();
+
+function loadVoices(){
+  const voices = speechSynthesis.getVoices();
+  const select = document.getElementById("voiceSelect");
+  select.innerHTML="";
+  voices.forEach((voice,i)=>{
+    const option = document.createElement("option");
+    option.value=i;
+    option.textContent=voice.name;
+    select.appendChild(option);
+  });
+}
+speechSynthesis.onvoiceschanged = loadVoices;
+
+document.getElementById("upload").addEventListener("change",(e)=>{
+  const img=document.getElementById("preview");
+  img.src=URL.createObjectURL(e.target.files[0]);
+  imageReady=true;
+  document.getElementById("analyzeBtn").disabled=false;
+});
+
+async function startCamera(){
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({video:true});
+    const video=document.getElementById("camera");
+    video.srcObject=stream;
+    video.style.display="block";
+    document.getElementById("preview").style.display="none";
+  }catch{
+    alert("Camera not supported or permission denied.");
+  }
+}
+
+function capture(){
+  const video=document.getElementById("camera");
+  if(!video.srcObject) return;
+
+  const canvas=document.createElement("canvas");
+  canvas.width=video.videoWidth;
+  canvas.height=video.videoHeight;
+  canvas.getContext("2d").drawImage(video,0,0);
+
+  const img=document.getElementById("preview");
+  img.src=canvas.toDataURL();
+  img.style.display="block";
+  video.style.display="none";
+
+  imageReady=true;
+  document.getElementById("analyzeBtn").disabled=false;
+}
+
+async function analyze(){
+  if(!imageReady) return;
+
+  document.getElementById("status").innerText="Analyzing...";
+  beep();
+
+  const img=document.getElementById("preview");
+  const predictions=await model.classify(img);
+  const objectName=predictions[0].className;
+
+  const response=`I see ${objectName}.`;
+
+  document.getElementById("status").innerText=response;
+  speak(response);
+  saveHistory(objectName);
+}
+
+function speak(text){
+  const msg=new SpeechSynthesisUtterance(text);
+  const voices=speechSynthesis.getVoices();
+  const selectedIndex=document.getElementById("voiceSelect").value;
+  if(voices[selectedIndex]) msg.voice=voices[selectedIndex];
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(msg);
+}
+
+function saveHistory(object){
+  historyData.unshift(object);
+  if(historyData.length>5) historyData.pop();
+  localStorage.setItem("seeHistory",JSON.stringify(historyData));
+  renderHistory();
+}
+
+function renderHistory(){
+  const list=document.getElementById("historyList");
+  list.innerHTML="";
+  historyData.forEach(item=>{
+    const li=document.createElement("li");
+    li.textContent=item;
+    list.appendChild(li);
+  });
+}
+renderHistory();
+
+function toggleDark(){
+  document.getElementById("app").classList.toggle("dark");
+}
+
+function beep(){
+  const ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const osc=ctx.createOscillator();
+  osc.frequency.setValueAtTime(800,ctx.currentTime);
+  osc.connect(ctx.destination);
+  osc.start();
+  osc.stop(ctx.currentTime+0.1);
+}
+</script>
+
+</body>
+</html>
